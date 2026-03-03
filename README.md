@@ -3,6 +3,21 @@
 **Real-Time Detection Based on Smart Fencing System for Farm Security**  
 *B.Tech Minor Project – Rohan Nandanwar, DMIHER (DU)*
 
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/deploy)
+
+---
+
+## 🌐 Live Web Demo
+
+Try the web version: **[Launch SmartVision AI Web App](https://huggingface.co/spaces/YOUR_USERNAME/smartvision-ai)** (Update link after deployment)
+
+### Deploy to Streamlit Cloud (Free)
+1. Fork this repository
+2. Go to [share.streamlit.io](https://share.streamlit.io)
+3. Connect your GitHub account
+4. Select this repo and set `app.py` as the main file
+5. Click Deploy!
+
 ---
 
 ## 📋 What This System Does
