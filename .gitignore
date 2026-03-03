@@ -1,0 +1,39 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs and local data
+logs/
+*.log
+
+# Model weights (too large for git)
+*.pt
+*.h5
+animal10.h5
+
+# Assets generated at runtime
+assets/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+
+# Secrets
+.env
