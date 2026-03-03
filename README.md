@@ -9,7 +9,7 @@
 
 ## 🌐 Live Web Demo
 
-Try the web version: **[Launch SmartVision AI Web App](https://huggingface.co/spaces/YOUR_USERNAME/smartvision-ai)** (Update link after deployment)
+Try the web version: **[Launch SmartVision AI Web App](https://eik2shjzhpojjv2xycbahw.streamlit.app)**
 
 ### Deploy to Streamlit Cloud (Free)
 1. Fork this repository
