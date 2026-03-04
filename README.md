@@ -3,20 +3,20 @@
 **Real-Time Detection Based on Smart Fencing System for Farm Security**  
 *B.Tech Minor Project – Rohan Nandanwar, DMIHER (DU)*
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/deploy)
+[![Open in HuggingFace Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/rking2005/SmartVision-Farm-Security)
 
 ---
 
 ## 🌐 Live Web Demo
 
-Try the web version: **[Launch SmartVision AI Web App](https://eik2shjzhpojjv2xycbahw.streamlit.app)**
+Try the web version: **[Launch SmartVision AI Web App](https://huggingface.co/spaces/rking2005/SmartVision-Farm-Security)**
 
-### Deploy to Streamlit Cloud (Free)
+### Deploy to HuggingFace Spaces (Free)
 1. Fork this repository
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Connect your GitHub account
-4. Select this repo and set `app.py` as the main file
-5. Click Deploy!
+2. Create a new Space at [huggingface.co/new-space](https://huggingface.co/new-space)
+3. Select **Gradio** as the SDK
+4. Upload `app.py`, `requirements.txt`, and all `yolov8*.pt` model files
+5. The Space will build and deploy automatically!
 
 ---
 
