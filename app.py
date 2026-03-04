@@ -16,25 +16,20 @@ from datetime import datetime
 from PIL import Image
 
 # ─── Torch Compatibility Fix (PyTorch 2.6+ weights_only) ──
+# PyTorch 2.6 changed torch.load default to weights_only=True,
+# which blocks YOLO .pt files from loading. We MUST patch this
+# BEFORE ultralytics imports torch.load internally.
 try:
     import torch
-    if hasattr(torch, 'serialization') and hasattr(torch.serialization, 'add_safe_globals'):
-        # PyTorch 2.6+ defaults weights_only=True which blocks YOLO loading
-        try:
-            from ultralytics.nn.tasks import DetectionModel, SegmentationModel, ClassificationModel
-            torch.serialization.add_safe_globals([DetectionModel, SegmentationModel, ClassificationModel])
-            print("[INIT] Patched torch safe_globals for ultralytics")
-        except Exception:
-            # Fallback: set default to weights_only=False
-            _original_load = torch.load
-            def _patched_load(*args, **kwargs):
-                if 'weights_only' not in kwargs:
-                    kwargs['weights_only'] = False
-                return _original_load(*args, **kwargs)
-            torch.load = _patched_load  # type: ignore
-            print("[INIT] Patched torch.load with weights_only=False")
+    _original_torch_load = torch.load
+    def _patched_torch_load(*args, **kwargs):
+        if 'weights_only' not in kwargs:
+            kwargs['weights_only'] = False
+        return _original_torch_load(*args, **kwargs)
+    torch.load = _patched_torch_load  # type: ignore
+    print(f"[INIT] Patched torch.load (PyTorch {torch.__version__}) weights_only=False")
 except Exception as e:
-    print(f"[WARN] Torch compatibility patch failed: {e}")
+    print(f"[WARN] Torch patch failed: {e}")
 
 # ─── ML Imports ───────────────────────────────
 LOAD_ERRORS = []
