@@ -1,0 +1,31 @@
+Timestamp,Type,Label,Risk,Action
+2026-03-04 18:00:46,Human,Woman | Age: 32,4000 µA Shock Deterrence,0.92
+2026-03-04 18:00:46,Animal,Horse | Conf:0.74,2500 µA Shock Deterrence,0.74
+2026-03-04 18:00:46,Animal,Cow | Conf:0.43,2500 µA Shock Deterrence,0.43
+2026-03-04 18:00:46,Animal,Horse | Conf:0.41,2500 µA Shock Deterrence,0.41
+2026-03-04 18:00:46,Animal,Dog | Conf:0.40,1800 µA Shock Deterrence,0.40
+2026-03-04 18:00:46,Object,Bowl | Conf:0.66,Alert,0.66
+2026-03-04 18:02:12,Human,Man | Age: 31,4000 µA Shock Deterrence,0.94
+2026-03-04 18:03:25,Human,Man | Age: 31,4000 µA Shock Deterrence,0.94
+2026-03-04 18:03:59,Human,Man | Age: 39,4000 µA Shock Deterrence,0.83
+2026-03-04 18:04:12,Human,Man | Age: 34,4000 µA Shock Deterrence,0.94
+2026-03-04 18:04:23,Human,Man | Age: 32,4000 µA Shock Deterrence,0.90
+2026-03-04 18:04:38,Human,Man | Age: 33,4000 µA Shock Deterrence,0.93
+2026-03-04 18:04:59,Human,Man | Age: 33,4000 µA Shock Deterrence,0.83
+2026-03-04 18:04:59,Human,Man | Age: 33,4000 µA Shock Deterrence,0.47
+2026-03-04 18:05:11,Human,Man | Age: 30,4000 µA Shock Deterrence,0.91
+2026-03-04 18:05:24,Human,Man | Age: 29,4000 µA Shock Deterrence,0.92
+2026-03-04 18:05:36,Human,Man | Age: 31,4000 µA Shock Deterrence,0.91
+2026-03-04 18:05:48,Human,Man | Age: 31,4000 µA Shock Deterrence,0.90
+2026-03-04 18:06:07,Human,Man | Age: 30,4000 µA Shock Deterrence,0.72
+2026-03-04 18:06:36,Human,Man | Age: 30,4000 µA Shock Deterrence,0.91
+2026-03-04 18:07:00,Human,Man | Age: 33,4000 µA Shock Deterrence,0.86
+2026-03-04 18:07:00,Human,Man | Age: 32,4000 µA Shock Deterrence,0.40
+2026-03-04 18:08:00,Human,Man | Age: 28,4000 µA Shock Deterrence,0.89
+2026-03-04 18:08:13,Human,Man | Age: 32,4000 µA Shock Deterrence,0.90
+2026-03-04 18:08:25,Human,Man | Age: 30,4000 µA Shock Deterrence,0.90
+2026-03-04 18:08:37,Human,Man | Age: 31,4000 µA Shock Deterrence,0.88
+2026-03-04 18:08:59,Human,Man | Age: 28,4000 µA Shock Deterrence,0.90
+2026-03-04 18:09:11,Human,Man | Age: 32,4000 µA Shock Deterrence,0.89
+2026-03-04 18:09:22,Human,Man | Age: 31,4000 µA Shock Deterrence,0.90
+2026-03-04 18:09:34,Human,Man | Age: 31,4000 µA Shock Deterrence,0.88

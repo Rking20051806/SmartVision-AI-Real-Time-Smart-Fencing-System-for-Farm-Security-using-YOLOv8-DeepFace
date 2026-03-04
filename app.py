@@ -1,105 +1,47 @@
 """
-SmartVision AI – Streamlit Web Application
-Real-Time Smart Fencing System for Farm Security using YOLOv8 & DeepFace
-Author: Rohan Nandanwar | B.Tech Minor Project, DMIHER (DU)
+Smart Fencing System – Web Application (Gradio)
+Real-Time Detection Based on Smart Fencing System for Farm Security
+Author: Rohan Nandanwar
+Deployable on Hugging Face Spaces / Render / Any cloud platform
 """
 
-import streamlit as st
+import gradio as gr
 import cv2
-import numpy as np
-from PIL import Image
-import tempfile
-import os
 import csv
-import pandas as pd
+import os
+import numpy as np
 from datetime import datetime
+from PIL import Image
 
-# ─── Page Config ──────────────────────────────
-st.set_page_config(
-    page_title="SmartVision AI – Smart Fencing System",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+# ─── ML Imports ───────────────────────────────
+try:
+    from ultralytics import YOLO
+    YOLO_AVAILABLE = True
+except ImportError:
+    YOLO_AVAILABLE = False
+    print("[WARNING] ultralytics not installed")
 
-# ─── Custom CSS for dark dashboard look ───────
-st.markdown("""
-<style>
-/* ── Global dark theme ── */
-[data-testid="stAppViewContainer"] { background-color: #0e1117; }
-[data-testid="stSidebar"] { background-color: #16213e; }
-header[data-testid="stHeader"] { background-color: #0e1117; }
+try:
+    from deepface import DeepFace
+    DEEPFACE_AVAILABLE = True
+except ImportError:
+    DEEPFACE_AVAILABLE = False
+    print("[WARNING] deepface not installed")
 
-/* ── Header banner ── */
-.hero-banner {
-    background: linear-gradient(135deg, #16213e 0%, #1a5276 50%, #1e8449 100%);
-    border-radius: 14px;
-    padding: 1.8rem 2rem;
-    text-align: center;
-    margin-bottom: 1.2rem;
-    box-shadow: 0 4px 20px rgba(0,0,0,.4);
-}
-.hero-banner h1 { color: #e94560; margin: 0; font-size: 2.2rem; }
-.hero-banner h3 { color: #ecf0f1; margin: .3rem 0 0; font-weight: 400; font-size: 1.1rem; }
-.hero-banner p  { color: #aab7c4; margin: .5rem 0 0; font-size: .85rem; }
+try:
+    import tensorflow as tf
+    TF_AVAILABLE = True
+except ImportError:
+    TF_AVAILABLE = False
 
-/* ── Metric cards ── */
-.metric-card {
-    background: #16213e;
-    border-radius: 10px;
-    padding: 1rem;
-    text-align: center;
-    border: 1px solid #1a5276;
-    box-shadow: 0 2px 10px rgba(0,0,0,.3);
-}
-.metric-card .num  { font-size: 2.4rem; font-weight: 700; margin: 0; }
-.metric-card .lbl  { color: #aab7c4; font-size: .85rem; margin: 0; }
-
-/* ── Detection panel ── */
-.det-panel {
-    background: #16213e;
-    border-radius: 10px;
-    padding: 1rem 1.2rem;
-    margin-bottom: .8rem;
-    border-left: 4px solid;
-    box-shadow: 0 2px 8px rgba(0,0,0,.25);
-}
-.det-panel.human  { border-color: #27ae60; }
-.det-panel.animal { border-color: #e67e22; }
-.det-panel.object { border-color: #e94560; }
-.det-panel .title { font-weight: 700; font-size: 1rem; margin: 0 0 .3rem; }
-.det-panel .info  { color: #bdc3c7; font-size: .88rem; line-height: 1.6; }
-.det-panel .shock { color: #e74c3c; font-weight: 700; }
-.det-panel .safe  { color: #2ecc71; font-weight: 700; }
-
-/* ── Table styling ── */
-.rules-table { width: 100%; border-collapse: collapse; margin: .5rem 0; }
-.rules-table th {
-    background: #1a5276; color: #ecf0f1; padding: .6rem .8rem;
-    text-align: left; font-size: .9rem;
-}
-.rules-table td {
-    background: #16213e; color: #bdc3c7; padding: .5rem .8rem;
-    border-bottom: 1px solid #0f3460; font-size: .88rem;
-}
-.rules-table tr:hover td { background: #1a3a5c; }
-
-/* ── Sidebar status badges ── */
-.status-ok  { color: #2ecc71; font-weight: 600; }
-.status-warn { color: #f39c12; font-weight: 600; }
-
-/* Hide default Streamlit branding */
-#MainMenu { visibility: hidden; }
-footer { visibility: hidden; }
-</style>
-""", unsafe_allow_html=True)
-
-# ─── Shock Rules ──────────────────────────────
+# ─────────────────────────────────────────────
+#  SHOCK RULES TABLE
+# ─────────────────────────────────────────────
 SHOCK_RULES = {
-    "adult_male":    {"shock": True,  "current_uA": 4000, "action": "4000 µA Shock Deterrence"},
-    "adult_female":  {"shock": True,  "current_uA": 2500, "action": "2500 µA Shock Deterrence"},
-    "child":         {"shock": False, "current_uA": 0,    "action": "No Shock (Safety Override)"},
-    "unknown_human": {"shock": False, "current_uA": 0,    "action": "Alert Only"},
+    "adult_male":    {"shock": True,  "current_uA": 4000,  "action": "4000 µA Shock Deterrence"},
+    "adult_female":  {"shock": True,  "current_uA": 2500,  "action": "2500 µA Shock Deterrence"},
+    "child":         {"shock": False, "current_uA": 0,     "action": "No Shock (Safety Override)"},
+    "unknown_human": {"shock": False, "current_uA": 0,     "action": "Alert Only"},
     "cow":       {"shock": True,  "current_uA": 2500, "action": "2500 µA Shock Deterrence"},
     "dog":       {"shock": True,  "current_uA": 1800, "action": "1800 µA Shock Deterrence"},
     "horse":     {"shock": True,  "current_uA": 2500, "action": "2500 µA Shock Deterrence"},
@@ -119,501 +61,640 @@ SHOCK_RULES = {
 ANIMAL_MAP = {
     "bird": "bird", "cat": "cat", "dog": "dog", "horse": "horse",
     "sheep": "sheep", "cow": "cow", "elephant": "elephant", "bear": "bear",
-    "zebra": "zebra", "giraffe": "giraffe",
+    "zebra": "zebra", "giraffe": "giraffe"
 }
 
-# ─── Optional dependency imports ──────────────
-YOLO_AVAILABLE = False
-YOLO = None
-try:
-    from ultralytics import YOLO
-    YOLO_AVAILABLE = True
-except ImportError:
-    pass
 
-DEEPFACE_AVAILABLE = False
-DeepFace = None
-try:
-    from deepface import DeepFace
-    DEEPFACE_AVAILABLE = True
-except ImportError:
-    pass
+# ─────────────────────────────────────────────
+#  DETECTION ENGINE (same logic as main.py)
+# ─────────────────────────────────────────────
+class DetectionEngine:
+    FACE_BACKENDS = ["retinaface", "mtcnn", "opencv", "ssd"]
+
+    def __init__(self, model_name="yolov8n.pt"):
+        self.model = None
+        self.animal_cnn = None
+        self.model_name = model_name
+        self.frame_count = 0
+        self.deepface_skip = 1  # analyze every frame for image mode
+        self._last_human_info = {}
+        self._best_backend = "retinaface"
+        self._load_models()
+
+    def _load_models(self):
+        if YOLO_AVAILABLE:
+            try:
+                self.model = YOLO(self.model_name)  # pyright: ignore
+                print(f"[OK] YOLO model loaded: {self.model_name}")
+            except Exception as e:
+                print(f"[ERROR] YOLO load failed: {e}")
+        if TF_AVAILABLE and os.path.exists("animal10.h5"):
+            try:
+                self.animal_cnn = tf.keras.models.load_model("animal10.h5")  # pyright: ignore
+                print("[OK] Animal-10 CNN loaded.")
+            except Exception as e:
+                print(f"[WARN] Animal CNN load failed: {e}")
+        self._best_backend = self._probe_backend()
+
+    def change_model(self, model_name):
+        self.model_name = model_name
+        if YOLO_AVAILABLE:
+            try:
+                self.model = YOLO(model_name)  # pyright: ignore
+                print(f"[OK] Switched to: {model_name}")
+            except Exception as e:
+                print(f"[ERROR] {e}")
+
+    def analyze_frame(self, frame):
+        """Returns (annotated_frame, human_detections, animal_detections, object_detections)"""
+        if self.model is None:
+            return frame, [], [], []
+
+        self.frame_count += 1
+        annotated = frame.copy()
+        humans, animals, objects = [], [], []
+
+        results = self.model(frame, verbose=False, conf=0.35)[0]
+
+        for box in results.boxes:
+            cls_id = int(box.cls[0])
+            cls_name = self.model.names[cls_id].lower()
+            conf = float(box.conf[0])
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+
+            if cls_name == "person":
+                age, gender = self._analyze_human(frame, x1, y1, x2, y2)
+                rule_key = self._get_human_rule(age, gender)
+                rule = SHOCK_RULES.get(rule_key, SHOCK_RULES["unknown_human"])
+                category = self._human_category_label(age, gender)
+                info = {
+                    "label": f"{category} | Age: {age}",
+                    "action": rule["action"],
+                    "shock": rule["shock"],
+                    "current_uA": rule.get("current_uA", 0),
+                    "conf": conf,
+                    "bbox": (x1, y1, x2, y2)
+                }
+                humans.append(info)
+                color = (0, 255, 0)
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+                overlay = f"{category}, Age:{age} ({conf:.2f})"
+                cv2.putText(annotated, overlay, (x1, y1 - 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+
+            elif cls_name in ANIMAL_MAP:
+                species = ANIMAL_MAP[cls_name]
+                rule = SHOCK_RULES.get(species, {"action": "Alert", "shock": False})
+                info = {
+                    "label": f"{species.capitalize()} | Conf:{conf:.2f}",
+                    "action": rule["action"],
+                    "shock": rule["shock"],
+                    "current_uA": rule.get("current_uA", 0),
+                    "conf": conf,
+                    "bbox": (x1, y1, x2, y2)
+                }
+                animals.append(info)
+                color = (255, 165, 0)
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(annotated, f"{species} {conf:.2f}", (x1, y1 - 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+            else:
+                info = {
+                    "label": f"{cls_name.capitalize()} | Conf:{conf:.2f}",
+                    "action": "Alert",
+                    "shock": False,
+                    "current_uA": 0,
+                    "conf": conf,
+                    "bbox": (x1, y1, x2, y2)
+                }
+                objects.append(info)
+                color = (0, 0, 255)
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(annotated, f"{cls_name} {conf:.2f}", (x1, y1 - 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+
+        return annotated, humans, animals, objects
+
+    # ── Human Analysis ────────────────────────
+    def _analyze_human(self, frame, x1, y1, x2, y2):
+        if not DEEPFACE_AVAILABLE:
+            visual_gender = self._visual_gender_features(frame, x1, y1, x2, y2)
+            return "?", visual_gender
+        if self.frame_count % self.deepface_skip != 0:
+            cached = self._last_human_info
+            return cached.get("age", "?"), cached.get("gender", "Unknown")
+        try:
+            h = y2 - y1
+            roi = frame[max(0, y1):y2, max(0, x1):x2]
+            if roi.size == 0:
+                return "?", "Unknown"
+
+            upper_h = max(h // 2, 60)
+            upper = frame[max(0, y1):min(frame.shape[0], max(0, y1) + upper_h),
+                          max(0, x1):min(frame.shape[1], x2)]
+
+            crops = []
+            for c in (upper, roi):
+                if c is not None and c.size > 0:
+                    ch, cw = c.shape[:2]
+                    if ch < 160 or cw < 160:
+                        scale = max(160 / ch, 160 / cw, 1.0)
+                        c = cv2.resize(c, (int(cw * scale), int(ch * scale)),
+                                       interpolation=cv2.INTER_LANCZOS4)
+                    crops.append(c)
+
+            deepface_age = None
+            deepface_gender = None
+            deepface_conf = 0.0
+            gender_scores = {}
+
+            backends_to_try = [self._best_backend] + [
+                b for b in self.FACE_BACKENDS if b != self._best_backend
+            ] + ["skip"]
+
+            for crop in crops:
+                for backend in backends_to_try:
+                    try:
+                        result = DeepFace.analyze(  # pyright: ignore
+                            crop, actions=["age", "gender"],
+                            enforce_detection=False, silent=True,
+                            detector_backend=backend
+                        )
+                        if isinstance(result, list):
+                            result = result[0]
+                        age = result.get("age", None)  # pyright: ignore
+                        gender = result.get("dominant_gender", None)  # pyright: ignore
+                        face_conf = result.get("face_confidence", 0)  # pyright: ignore
+                        gender_scores = result.get("gender", {})  # pyright: ignore
+                        if age is not None and gender is not None:
+                            deepface_age = age
+                            deepface_gender = gender
+                            deepface_conf = float(face_conf) if face_conf else 0.0
+                            if deepface_conf > 0.8:
+                                break
+                    except Exception:
+                        continue
+                if deepface_age is not None and deepface_conf > 0.8:
+                    break
+
+            visual_gender = self._visual_gender_features(frame, x1, y1, x2, y2)
+            final_gender = self._fuse_gender(
+                deepface_gender, deepface_conf, gender_scores, visual_gender
+            )
+            final_age = deepface_age if deepface_age is not None else "?"
+            self._last_human_info = {"age": final_age, "gender": final_gender}
+            return final_age, final_gender
+
+        except Exception:
+            return "?", "Unknown"
+
+    # ── Visual Gender Features ────────────────
+    def _visual_gender_features(self, frame, x1, y1, x2, y2):
+        try:
+            h = y2 - y1
+            w = x2 - x1
+            roi = frame[max(0, y1):y2, max(0, x1):x2]
+            if roi.size == 0:
+                return "Unknown"
+
+            score = 0.0
+
+            # 1) Hair length detection
+            head_region = roi[0:int(h * 0.4), :]
+            if head_region.size > 0:
+                gray_head = cv2.cvtColor(head_region, cv2.COLOR_BGR2GRAY)
+                hair_mask = (gray_head < 80).astype(np.uint8)
+                head_h, head_w = gray_head.shape[:2]
+                if head_h > 10 and head_w > 10:
+                    top_hair = hair_mask[:head_h // 2, :]
+                    bottom_hair = hair_mask[head_h // 2:, :]
+                    top_ratio = np.sum(top_hair) / max(top_hair.size, 1)
+                    bottom_ratio = np.sum(bottom_hair) / max(bottom_hair.size, 1)
+                    if top_ratio > 0.15 and bottom_ratio > 0.12:
+                        hair_extent = bottom_ratio / max(top_ratio, 0.01)
+                        if hair_extent > 0.4:
+                            score += 1.5
+                    hair_cols = np.sum(hair_mask, axis=0)
+                    hair_spread = np.sum(hair_cols > 0) / max(head_w, 1)
+                    if hair_spread > 0.6:
+                        score += 0.8
+
+            # 2) Body shape
+            if h > 40 and w > 20:
+                shoulder_strip = roi[int(h * 0.2):int(h * 0.3), :]
+                hip_strip = roi[int(h * 0.55):int(h * 0.7), :]
+                if shoulder_strip.size > 0 and hip_strip.size > 0:
+                    gray_s = cv2.cvtColor(shoulder_strip, cv2.COLOR_BGR2GRAY)
+                    gray_h = cv2.cvtColor(hip_strip, cv2.COLOR_BGR2GRAY)
+                    edges_s = cv2.Canny(gray_s, 50, 150)
+                    edges_h = cv2.Canny(gray_h, 50, 150)
+                    s_width = np.sum(np.sum(edges_s, axis=0) > 0)
+                    h_width = np.sum(np.sum(edges_h, axis=0) > 0)
+                    if s_width > 5:
+                        ratio = h_width / max(s_width, 1)
+                        if ratio > 1.15:
+                            score += 1.0
+                        elif ratio < 0.85:
+                            score -= 0.8
+
+            # 3) Clothing color
+            if roi.size > 0:
+                hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+                clothing = hsv[int(h * 0.25):int(h * 0.7), :]
+                if clothing.size > 0:
+                    warm_mask = ((clothing[:, :, 0] < 15) | (clothing[:, :, 0] > 155)) & \
+                                (clothing[:, :, 1] > 50)
+                    warm_ratio = np.sum(warm_mask) / max(warm_mask.size, 1)
+                    if warm_ratio > 0.1:
+                        score += 0.5
+
+            # 4) Skin smoothness
+            upper_body = roi[0:int(h * 0.4), :]
+            if upper_body.size > 0:
+                gray_ub = cv2.cvtColor(upper_body, cv2.COLOR_BGR2GRAY)
+                hsv_ub = cv2.cvtColor(upper_body, cv2.COLOR_BGR2HSV)
+                skin_mask = (hsv_ub[:, :, 0] >= 0) & (hsv_ub[:, :, 0] <= 25) & \
+                            (hsv_ub[:, :, 1] >= 30) & (hsv_ub[:, :, 2] >= 60)
+                if np.sum(skin_mask) > 100:
+                    skin_gray = gray_ub.copy()
+                    skin_gray[~skin_mask] = 0
+                    lap_var = cv2.Laplacian(skin_gray, cv2.CV_64F).var()
+                    if lap_var < 500:
+                        score += 0.4
+                    elif lap_var > 1500:
+                        score -= 0.4
+
+            if score >= 1.5:
+                return "Woman"
+            elif score <= -1.0:
+                return "Man"
+            return "Unknown"
+        except Exception:
+            return "Unknown"
+
+    def _fuse_gender(self, deepface_gender, deepface_conf, gender_scores, visual_gender):
+        if deepface_gender is None and visual_gender == "Unknown":
+            return "Unknown"
+        if deepface_gender is None:
+            return visual_gender
+
+        df_str = str(deepface_gender).lower()
+        df_is_woman = "woman" in df_str or "female" in df_str
+        df_gender_prob = 0.5
+        if isinstance(gender_scores, dict):
+            woman_prob = gender_scores.get("Woman", gender_scores.get("Female", 50))
+            df_gender_prob = float(woman_prob) / 100.0
+
+        if deepface_conf > 0.8 and (df_gender_prob > 0.75 or df_gender_prob < 0.25):
+            return "Woman" if df_is_woman else "Man"
+        if visual_gender == "Woman" and (df_gender_prob > 0.35 or deepface_conf < 0.5):
+            return "Woman"
+        if visual_gender == "Man" and (df_gender_prob < 0.65 or deepface_conf < 0.5):
+            return "Man"
+        if visual_gender != "Unknown" and deepface_conf < 0.6:
+            return visual_gender
+        return "Woman" if df_is_woman else "Man"
+
+    def _probe_backend(self):
+        if not DEEPFACE_AVAILABLE:
+            return "skip"
+        test_img = np.zeros((160, 160, 3), dtype=np.uint8) + 128
+        for backend in self.FACE_BACKENDS:
+            try:
+                DeepFace.analyze(test_img, actions=["gender"],  # pyright: ignore
+                                 enforce_detection=False, silent=True,
+                                 detector_backend=backend)
+                print(f"[OK] Face-detection backend: {backend}")
+                return backend
+            except Exception:
+                continue
+        return "skip"
+
+    def _human_category_label(self, age, gender):
+        try:
+            age_int = int(age)
+        except (ValueError, TypeError):
+            age_int = None
+        if age_int is not None and age_int < 18:
+            return "Child"
+        gender_str = str(gender).lower()
+        if "woman" in gender_str or "female" in gender_str:
+            return "Woman"
+        elif "man" in gender_str or "male" in gender_str:
+            return "Man"
+        return "Person"
+
+    def _get_human_rule(self, age, gender):
+        try:
+            age = int(age)
+        except (ValueError, TypeError):
+            return "unknown_human"
+        if age < 18:
+            return "child"
+        gender_str = str(gender).lower()
+        if "man" in gender_str or "male" in gender_str:
+            return "adult_male"
+        elif "woman" in gender_str or "female" in gender_str:
+            return "adult_female"
+        return "unknown_human"
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  DETECTION HELPERS
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ─────────────────────────────────────────────
+#  LOGGER
+# ─────────────────────────────────────────────
+class Logger:
+    def __init__(self, filepath="detection_log.csv"):
+        self.filepath = filepath
+        os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else ".", exist_ok=True)
+        if not os.path.exists(filepath):
+            with open(filepath, "w", newline="") as f:
+                csv.writer(f).writerow(["Timestamp", "Type", "Label", "Action", "Confidence"])
 
-@st.cache_resource
-def load_yolo_model(model_name: str):
-    """Load and cache a YOLO model (downloaded automatically if needed)."""
-    if YOLO_AVAILABLE and YOLO is not None:
-        return YOLO(model_name)
+    def log(self, det_type, label, action, conf):
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(self.filepath, "a", newline="") as f:
+            csv.writer(f).writerow([ts, det_type, label, action, f"{conf:.2f}"])
+
+
+# ─────────────────────────────────────────────
+#  GLOBAL ENGINE & LOGGER
+# ─────────────────────────────────────────────
+AVAILABLE_MODELS = ["yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolov8l.pt", "yolov8x.pt"]
+engine = DetectionEngine("yolov8n.pt")
+logger = Logger("detection_log.csv")
+
+
+# ─────────────────────────────────────────────
+#  PROCESSING FUNCTIONS
+# ─────────────────────────────────────────────
+def format_detections(humans, animals, objects):
+    """Build a formatted Markdown report of all detections."""
+    lines = []
+
+    if humans:
+        lines.append("### 🧑 Human Detections\n")
+        for h in humans:
+            shock_icon = "⚡" if h["shock"] else "✅"
+            lines.append(f"- **{h['label']}** ({h['conf']:.0%})")
+            lines.append(f"  - {shock_icon} {h['action']}")
+            if h.get("current_uA"):
+                lines.append(f"  - Current: {h['current_uA']} µA")
+        lines.append("")
+
+    if animals:
+        lines.append("### 🐾 Animal Detections\n")
+        for a in animals:
+            shock_icon = "⚡" if a["shock"] else "🔔"
+            lines.append(f"- **{a['label']}**")
+            lines.append(f"  - {shock_icon} {a['action']}")
+        lines.append("")
+
+    if objects:
+        lines.append("### 📦 Other Objects\n")
+        for o in objects[:8]:
+            lines.append(f"- {o['label']}")
+        lines.append("")
+
+    if not humans and not animals and not objects:
+        lines.append("*No detections in this frame.*")
+
+    # Summary stats
+    total = len(humans) + len(animals) + len(objects)
+    shock_count = sum(1 for d in humans + animals if d.get("shock"))
+    lines.append(f"\n---\n**Total: {total}** detections | **{shock_count}** shock triggers")
+
+    return "\n".join(lines)
+
+
+def process_image(image, model_name):
+    """Process a single uploaded image."""
+    if image is None:
+        return None, "*Upload an image to begin detection.*"
+
+    # Switch model if changed
+    if model_name and model_name != engine.model_name:
+        engine.change_model(model_name)
+
+    # Convert PIL → OpenCV BGR
+    frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    frame = cv2.resize(frame, (640, 480))
+
+    # Run detection
+    annotated, humans, animals, objects = engine.analyze_frame(frame)
+
+    # Log detections
+    for h in humans:
+        logger.log("Human", h["label"], h["action"], h["conf"])
+    for a in animals:
+        logger.log("Animal", a["label"], a["action"], a["conf"])
+    for o in objects:
+        logger.log("Object", o["label"], o["action"], o["conf"])
+
+    # Convert back to RGB for display
+    result_img = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+    report = format_detections(humans, animals, objects)
+
+    return Image.fromarray(result_img), report
+
+
+def process_webcam(frame, model_name):
+    """Process a webcam frame (streaming)."""
+    if frame is None:
+        return None, "*Waiting for webcam...*"
+
+    if model_name and model_name != engine.model_name:
+        engine.change_model(model_name)
+
+    # Gradio webcam gives numpy RGB
+    bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    bgr = cv2.resize(bgr, (640, 480))
+
+    annotated, humans, animals, objects = engine.analyze_frame(bgr)
+
+    for h in humans:
+        logger.log("Human", h["label"], h["action"], h["conf"])
+    for a in animals:
+        logger.log("Animal", a["label"], a["action"], a["conf"])
+
+    result_img = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+    report = format_detections(humans, animals, objects)
+
+    return result_img, report
+
+
+def process_video(video_path, model_name):
+    """Process an uploaded video file, return annotated first frame + full report."""
+    if video_path is None:
+        return None, "*Upload a video to begin.*"
+
+    if model_name and model_name != engine.model_name:
+        engine.change_model(model_name)
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return None, "**Error:** Could not open video file."
+
+    all_humans, all_animals, all_objects = [], [], []
+    result_frame = None
+    frame_idx = 0
+    max_frames = 60  # process up to 60 frames
+
+    while cap.isOpened() and frame_idx < max_frames:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame = cv2.resize(frame, (640, 480))
+
+        # Process every 3rd frame for speed
+        if frame_idx % 3 == 0:
+            annotated, humans, animals, objects = engine.analyze_frame(frame)
+            all_humans.extend(humans)
+            all_animals.extend(animals)
+            all_objects.extend(objects)
+            if result_frame is None:
+                result_frame = annotated.copy()
+            for h in humans:
+                logger.log("Human", h["label"], h["action"], h["conf"])
+            for a in animals:
+                logger.log("Animal", a["label"], a["action"], a["conf"])
+
+        frame_idx += 1
+
+    cap.release()
+
+    if result_frame is not None:
+        result_img = Image.fromarray(cv2.cvtColor(result_frame, cv2.COLOR_BGR2RGB))
+    else:
+        result_img = None
+
+    report = format_detections(all_humans, all_animals, all_objects)
+    report = f"**Analyzed {frame_idx} frames**\n\n" + report
+    return result_img, report
+
+
+def get_log_file():
+    """Return the CSV log file for download."""
+    if os.path.exists("detection_log.csv"):
+        return "detection_log.csv"
     return None
 
 
-def _analyze_face(frame, x1, y1, x2, y2):
-    """Use DeepFace on a face-cropped ROI for age/gender."""
-    if not DEEPFACE_AVAILABLE or DeepFace is None:
-        return "?", "Unknown"
-    try:
-        roi = frame[max(0, y1):y2, max(0, x1):x2]
-        if roi.size == 0:
-            return "?", "Unknown"
-        face_roi = roi
-        try:
-            cascade = cv2.CascadeClassifier(
-                cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-            )
-            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-            faces = cascade.detectMultiScale(gray, 1.1, 4, minSize=(30, 30))
-            if len(faces) > 0:
-                fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
-                pad = int(0.2 * max(fw, fh))
-                face_roi = roi[
-                    max(0, fy - pad): min(roi.shape[0], fy + fh + pad),
-                    max(0, fx - pad): min(roi.shape[1], fx + fw + pad),
-                ]
-                if face_roi.size == 0:
-                    face_roi = roi
-        except Exception:
-            pass
-        res = DeepFace.analyze(face_roi, actions=["age", "gender"],
-                               enforce_detection=False, silent=True)
-        if isinstance(res, list):
-            res = res[0]
-        return res.get("age", "?"), res.get("dominant_gender", "Unknown")
-    except Exception:
-        return "?", "Unknown"
+def get_shock_rules_table():
+    """Show shock rules as Markdown table."""
+    lines = ["| Entity | Shock? | Current (µA) | Action |",
+             "|--------|--------|-------------|--------|"]
+    for key, rule in SHOCK_RULES.items():
+        name = key.replace("_", " ").title()
+        shock = "⚡ Yes" if rule.get("shock") else "❌ No"
+        current = rule.get("current_uA", 0)
+        lines.append(f"| {name} | {shock} | {current} | {rule['action']} |")
+    return "\n".join(lines)
 
 
-def _human_rule(age, gender):
-    try:
-        age = int(age)
-    except (ValueError, TypeError):
-        return "unknown_human"
-    if age < 18:
-        return "child"
-    g = str(gender).lower()
-    if "man" in g or "male" in g:
-        return "adult_male"
-    if "woman" in g or "female" in g:
-        return "adult_female"
-    return "unknown_human"
+# ─────────────────────────────────────────────
+#  GRADIO UI
+# ─────────────────────────────────────────────
+TITLE = "⚡ Smart Fencing System"
+DESCRIPTION = """
+**Real-Time Detection Based on Smart Fencing System for Farm Security**
 
+Upload an image, video, or use your webcam to detect humans (with age & gender) and animals.
+The system determines the appropriate shock deterrence based on detection type.
 
-# ── Haar cascade fallback (always available) ──
-def detect_haar(frame):
-    annotated = frame.copy()
-    humans, animals, objects_list = [], [], []
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    face_cas = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-    body_cas = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_fullbody.xml")
+*By Rohan Nandanwar*
+"""
 
-    faces = face_cas.detectMultiScale(gray, 1.1, 5, minSize=(30, 30))
-    for x, y, w, h in faces:
-        age, gender = _analyze_face(frame, x, y, x + w, y + h)
-        rk = _human_rule(age, gender)
-        rule = SHOCK_RULES.get(rk, SHOCK_RULES["unknown_human"])
-        humans.append(dict(label=f"Person | Age:{age} Gender:{gender}",
-                           action=rule["action"], shock=rule["shock"],
-                           current_uA=rule["current_uA"], conf=0.85))
-        cv2.rectangle(annotated, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.putText(annotated, "Human 0.85", (x, y - 8),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
+with gr.Blocks(
+    title="Smart Fencing System",
+    theme=gr.themes.Soft(primary_hue="orange", secondary_hue="blue"),  # pyright: ignore
+    css="""
+        .main-header { text-align: center; margin-bottom: 10px; }
+        .detection-report { min-height: 200px; }
+    """
+) as demo:
 
-    bodies = body_cas.detectMultiScale(gray, 1.1, 3, minSize=(50, 100))
-    for x, y, w, h in bodies:
-        overlap = any(abs(x - fx) < fw and abs(y - fy) < fh for fx, fy, fw, fh in faces)
-        if not overlap:
-            rule = SHOCK_RULES["unknown_human"]
-            humans.append(dict(label="Person (Body)", action=rule["action"],
-                               shock=False, current_uA=0, conf=0.70))
-            cv2.rectangle(annotated, (x, y), (x + w, y + h), (0, 200, 0), 2)
-            cv2.putText(annotated, "Human (body)", (x, y - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 200, 0), 2)
+    gr.Markdown(f"# {TITLE}", elem_classes="main-header")
+    gr.Markdown(DESCRIPTION)
 
-    return annotated, humans, animals, objects_list
-
-
-# ── YOLO detection ────────────────────────────
-def detect_yolo(frame, model, conf_thr=0.35):
-    if model is None:
-        return detect_haar(frame)
-    annotated = frame.copy()
-    humans, animals, objects_list = [], [], []
-
-    results = model(frame, verbose=False, conf=conf_thr)[0]
-    for box in results.boxes:
-        cls_id = int(box.cls[0])
-        cls_name = model.names[cls_id].lower()
-        conf = float(box.conf[0])
-        x1, y1, x2, y2 = map(int, box.xyxy[0])
-
-        if cls_name == "person":
-            age, gender = _analyze_face(frame, x1, y1, x2, y2)
-            rk = _human_rule(age, gender)
-            rule = SHOCK_RULES.get(rk, SHOCK_RULES["unknown_human"])
-            humans.append(dict(label=f"Person | Age:{age} Gender:{gender}",
-                               action=rule["action"], shock=rule["shock"],
-                               current_uA=rule["current_uA"], conf=conf))
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(annotated, f"Human {conf:.2f}", (x1, y1 - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
-        elif cls_name in ANIMAL_MAP:
-            species = ANIMAL_MAP[cls_name]
-            rule = SHOCK_RULES.get(species, {"action": "Alert", "shock": False, "current_uA": 0})
-            animals.append(dict(label=f"{species.capitalize()} | Conf:{conf:.2f}",
-                                action=rule["action"], shock=rule["shock"],
-                                current_uA=rule.get("current_uA", 0), conf=conf))
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 165, 0), 2)
-            cv2.putText(annotated, f"{species} {conf:.2f}", (x1, y1 - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 165, 0), 2)
-        else:
-            objects_list.append(dict(label=f"{cls_name.capitalize()} | Conf:{conf:.2f}",
-                                     action="Alert", shock=False, current_uA=0, conf=conf))
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 2)
-            cv2.putText(annotated, f"{cls_name} {conf:.2f}", (x1, y1 - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 255), 2)
-
-    return annotated, humans, animals, objects_list
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  UI RENDERING HELPERS
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-def render_metric(label, value, color="#e94560"):
-    return f"""
-    <div class="metric-card">
-        <p class="num" style="color:{color}">{value}</p>
-        <p class="lbl">{label}</p>
-    </div>"""
-
-
-def render_detection_panel(det, category="human"):
-    status_cls = "shock" if det["shock"] else "safe"
-    status_txt = "⚡ SHOCK" if det["shock"] else "✔ SAFE"
-    return f"""
-    <div class="det-panel {category}">
-        <p class="title">{det['label']}</p>
-        <p class="info">
-            Status: <span class="{status_cls}">{status_txt}</span><br>
-            Action: {det['action']}<br>
-            Current: {det.get('current_uA', 0)} µA &nbsp;|&nbsp; Confidence: {det['conf']:.0%}
-        </p>
-    </div>"""
-
-
-def render_detections(humans, animals, objects_list):
-    """Three-column detection dashboard."""
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown("#### 👤 Human Detections")
-        if humans:
-            for h in humans:
-                st.markdown(render_detection_panel(h, "human"), unsafe_allow_html=True)
-        else:
-            st.info("No humans detected")
-    with c2:
-        st.markdown("#### 🐾 Animal Detections")
-        if animals:
-            for a in animals:
-                st.markdown(render_detection_panel(a, "animal"), unsafe_allow_html=True)
-        else:
-            st.info("No animals detected")
-    with c3:
-        st.markdown("#### 📦 Other Objects")
-        if objects_list:
-            for o in objects_list:
-                st.markdown(render_detection_panel(o, "object"), unsafe_allow_html=True)
-        else:
-            st.info("No other objects")
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  MAIN APPLICATION
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-def main():
-    # ── Hero Banner ──
-    st.markdown("""
-    <div class="hero-banner">
-        <h1>🛡️ SmartVision AI</h1>
-        <h3>Real-Time Smart Fencing System for Farm Security</h3>
-        <p>Powered by YOLOv8 &amp; DeepFace &nbsp;|&nbsp; Author: Rohan Nandanwar &nbsp;|&nbsp; DMIHER (DU)</p>
-    </div>""", unsafe_allow_html=True)
-
-    # ── Sidebar ──
-    with st.sidebar:
-        st.image("https://img.icons8.com/fluency/96/shield.png", width=64)
-        st.markdown("## ⚙️ Control Panel")
-        st.markdown("---")
-
-        # Model selector
-        model = None
-        det_mode = "Haar Cascade (fallback)"
-        if YOLO_AVAILABLE:
-            model_choice = st.selectbox(
-                "🔧 YOLO Model",
-                ["yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolov8l.pt", "yolov8x.pt"],
-                index=2,  # default yolov8m.pt
-                help="Larger models are more accurate but slower",
-            )
-            det_mode = f"YOLOv8 ({model_choice})"
-            with st.spinner(f"Loading {model_choice}…"):
-                model = load_yolo_model(model_choice)
-        else:
-            st.warning("YOLO not available – using Haar Cascade fallback")
-
-        conf_threshold = st.slider("🎯 Confidence Threshold", 0.10, 1.00, 0.35, 0.05)
-
-        st.markdown("---")
-        st.markdown("### 📊 System Status")
-        yolo_status = '<span class="status-ok">✅ Loaded</span>' if YOLO_AVAILABLE else '<span class="status-warn">⚠️ Haar fallback</span>'
-        df_status = '<span class="status-ok">✅ Loaded</span>' if DEEPFACE_AVAILABLE else '<span class="status-warn">⚠️ Not available</span>'
-        st.markdown(f"**Detection:** {det_mode}", unsafe_allow_html=True)
-        st.markdown(f"**YOLO:** {yolo_status}", unsafe_allow_html=True)
-        st.markdown(f"**DeepFace:** {df_status}", unsafe_allow_html=True)
-        st.markdown(f"**OpenCV:** <span class='status-ok'>✅ {cv2.__version__}</span>", unsafe_allow_html=True)
-
-        st.markdown("---")
-        st.markdown(
-            "<small style='color:#7f8c8d'>© 2025 Rohan Nandanwar<br>"
-            "B.Tech Minor Project – DMIHER (DU)</small>",
-            unsafe_allow_html=True,
+    with gr.Row():
+        model_selector = gr.Dropdown(
+            choices=AVAILABLE_MODELS,
+            value="yolov8n.pt",
+            label="🔧 YOLO Model",
+            info="Larger models (m/l/x) are more accurate but slower"
         )
 
-    # ── Main tabs ──
-    tab_img, tab_vid, tab_rules, tab_logs, tab_about = st.tabs([
-        "📷 Image Detection",
-        "🎥 Video Detection",
-        "⚡ Shock Rules",
-        "📋 Detection Logs",
-        "ℹ️ About",
-    ])
+    with gr.Tabs():
+        # ── Tab 1: Image Upload ──
+        with gr.TabItem("📷 Image Upload"):
+            with gr.Row():
+                with gr.Column(scale=1):
+                    img_input = gr.Image(type="pil", label="Upload Image")
+                    img_btn = gr.Button("🔍 Detect", variant="primary", size="lg")
+                with gr.Column(scale=1):
+                    img_output = gr.Image(label="Detection Result")
+            img_report = gr.Markdown(label="Detection Report", elem_classes="detection-report")
 
-    # ━━━━━━ TAB 1 — IMAGE ━━━━━━
-    with tab_img:
-        st.markdown("### 📷 Upload an Image for Detection")
-        uploaded = st.file_uploader("Choose an image…", type=["jpg", "jpeg", "png", "bmp"], key="img_up")
-
-        if uploaded is not None:
-            image = Image.open(uploaded)
-            frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-
-            with st.spinner("🔍 Analyzing image…"):
-                if YOLO_AVAILABLE and model:
-                    annotated, humans, animals, objs = detect_yolo(frame, model, conf_threshold)
-                else:
-                    annotated, humans, animals, objs = detect_haar(frame)
-
-            # Side-by-side images
-            left, right = st.columns(2)
-            with left:
-                st.markdown("**📸 Original Image**")
-                st.image(image, use_container_width=True)
-            with right:
-                st.markdown("**🔍 Detection Results**")
-                st.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), use_container_width=True)
-
-            # Metric cards
-            total = len(humans) + len(animals) + len(objs)
-            shocks = sum(1 for d in humans + animals if d["shock"])
-            m1, m2, m3, m4 = st.columns(4)
-            m1.markdown(render_metric("Total Detections", total, "#3498db"), unsafe_allow_html=True)
-            m2.markdown(render_metric("Humans", len(humans), "#27ae60"), unsafe_allow_html=True)
-            m3.markdown(render_metric("Animals", len(animals), "#e67e22"), unsafe_allow_html=True)
-            m4.markdown(render_metric("⚡ Shock Alerts", shocks, "#e74c3c"), unsafe_allow_html=True)
-
-            st.markdown("---")
-            render_detections(humans, animals, objs)
-
-            # Save log
-            _save_log(humans, animals, objs)
-
-        else:
-            st.markdown(
-                "<div style='text-align:center;padding:4rem 0;color:#7f8c8d'>"
-                "<h2>📷</h2><p>Upload an image above to start detection</p></div>",
-                unsafe_allow_html=True,
+            img_btn.click(
+                fn=process_image,
+                inputs=[img_input, model_selector],
+                outputs=[img_output, img_report]
             )
 
-    # ━━━━━━ TAB 2 — VIDEO ━━━━━━
-    with tab_vid:
-        st.markdown("### 🎥 Upload a Video for Detection")
-        vid_file = st.file_uploader("Choose a video…", type=["mp4", "avi", "mov", "mkv"], key="vid_up")
+        # ── Tab 2: Webcam (Live) ──
+        with gr.TabItem("📹 Webcam (Live)"):
+            gr.Markdown("*Click to start your webcam. Detections update per frame.*")
+            with gr.Row():
+                with gr.Column(scale=1):
+                    webcam_input = gr.Image(sources=["webcam"], streaming=True, label="Webcam Feed")
+                with gr.Column(scale=1):
+                    webcam_output = gr.Image(label="Detection Result")
+            webcam_report = gr.Markdown(elem_classes="detection-report")
 
-        if vid_file is not None:
-            tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-            tfile.write(vid_file.read())
-            tfile.close()
-
-            cap = cv2.VideoCapture(tfile.name)
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-            st.markdown("**🎬 Processing Video…**")
-            progress = st.progress(0)
-            frame_display = st.empty()
-            stats_display = st.empty()
-
-            frame_idx = 0
-            sum_humans = 0
-            sum_animals = 0
-            all_humans, all_animals, all_objs = [], [], []
-
-            while cap.isOpened():
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                frame_idx += 1
-
-                # Process every 5th frame for performance
-                if frame_idx % 5 == 0:
-                    if YOLO_AVAILABLE and model:
-                        ann, h, a, o = detect_yolo(frame, model, conf_threshold)
-                    else:
-                        ann, h, a, o = detect_haar(frame)
-                    sum_humans += len(h)
-                    sum_animals += len(a)
-                    all_humans.extend(h)
-                    all_animals.extend(a)
-                    all_objs.extend(o)
-                    frame_display.image(cv2.cvtColor(ann, cv2.COLOR_BGR2RGB),
-                                        use_container_width=True)
-                    stats_display.markdown(
-                        f"**Frame** {frame_idx}/{total_frames} &nbsp;|&nbsp; "
-                        f"**Humans:** {len(h)} &nbsp;|&nbsp; **Animals:** {len(a)}"
-                    )
-                if total_frames > 0:
-                    progress.progress(min(frame_idx / total_frames, 1.0))
-
-            cap.release()
-            os.unlink(tfile.name)
-            progress.progress(1.0)
-
-            st.success(f"✅ Processed {frame_idx} frames  |  Humans: {sum_humans}  |  Animals: {sum_animals}")
-
-            # Summary metrics
-            m1, m2, m3 = st.columns(3)
-            m1.markdown(render_metric("Frames Processed", frame_idx, "#3498db"), unsafe_allow_html=True)
-            m2.markdown(render_metric("Total Humans", sum_humans, "#27ae60"), unsafe_allow_html=True)
-            m3.markdown(render_metric("Total Animals", sum_animals, "#e67e22"), unsafe_allow_html=True)
-
-            _save_log(all_humans, all_animals, all_objs)
-        else:
-            st.markdown(
-                "<div style='text-align:center;padding:4rem 0;color:#7f8c8d'>"
-                "<h2>🎥</h2><p>Upload a video above to start detection</p></div>",
-                unsafe_allow_html=True,
+            webcam_input.stream(
+                fn=process_webcam,
+                inputs=[webcam_input, model_selector],
+                outputs=[webcam_output, webcam_report]
             )
 
-    # ━━━━━━ TAB 3 — SHOCK RULES ━━━━━━
-    with tab_rules:
-        st.markdown("### ⚡ Smart Shock Rules Engine")
-        st.markdown("The system applies adaptive deterrence levels based on the detected entity type.")
+        # ── Tab 3: Video Upload ──
+        with gr.TabItem("🎬 Video Upload"):
+            with gr.Row():
+                with gr.Column(scale=1):
+                    vid_input = gr.Video(label="Upload Video")
+                    vid_btn = gr.Button("🔍 Analyze Video", variant="primary", size="lg")
+                with gr.Column(scale=1):
+                    vid_output = gr.Image(label="Detection Sample Frame")
+            vid_report = gr.Markdown(elem_classes="detection-report")
 
-        st.markdown("#### 👤 Human Rules")
-        human_html = '<table class="rules-table"><tr><th>Entity</th><th>Shock</th><th>Current (µA)</th><th>Action</th></tr>'
-        for key in ["adult_male", "adult_female", "child", "unknown_human"]:
-            r = SHOCK_RULES[key]
-            shock_txt = "✅ Yes" if r["shock"] else "❌ No"
-            human_html += f'<tr><td>{key.replace("_"," ").title()}</td><td>{shock_txt}</td><td>{r["current_uA"]}</td><td>{r["action"]}</td></tr>'
-        human_html += "</table>"
-        st.markdown(human_html, unsafe_allow_html=True)
+            vid_btn.click(
+                fn=process_video,
+                inputs=[vid_input, model_selector],
+                outputs=[vid_output, vid_report]
+            )
 
-        st.markdown("#### 🐾 Animal Rules")
-        animal_keys = sorted(ANIMAL_MAP.values()) + ["chicken", "squirrel", "butterfly", "spider"]
-        seen = set()
-        animal_html = '<table class="rules-table"><tr><th>Species</th><th>Shock</th><th>Current (µA)</th><th>Action</th></tr>'
-        for key in animal_keys:
-            if key in seen or key not in SHOCK_RULES:
-                continue
-            seen.add(key)
-            r = SHOCK_RULES[key]
-            shock_txt = "✅ Yes" if r["shock"] else "❌ No"
-            animal_html += f'<tr><td>{key.capitalize()}</td><td>{shock_txt}</td><td>{r["current_uA"]}</td><td>{r["action"]}</td></tr>'
-        animal_html += "</table>"
-        st.markdown(animal_html, unsafe_allow_html=True)
+        # ── Tab 4: Shock Rules ──
+        with gr.TabItem("📋 Shock Rules"):
+            gr.Markdown("### ⚡ Smart Fencing Shock Rules Table")
+            gr.Markdown(get_shock_rules_table())
 
-        st.markdown(
-            "<br><small style='color:#95a5a6'>⚠️ Currents are for simulation/reference only. "
-            "Real hardware must comply with IEC 60479-1 & IEC 60335-2-76.</small>",
-            unsafe_allow_html=True,
-        )
+        # ── Tab 5: Detection Log ──
+        with gr.TabItem("📊 Detection Log"):
+            gr.Markdown("### Detection History")
+            log_btn = gr.Button("📥 Download Detection Log", variant="secondary")
+            log_file = gr.File(label="Log File")
+            log_btn.click(fn=get_log_file, outputs=[log_file])
 
-    # ━━━━━━ TAB 4 — LOGS ━━━━━━
-    with tab_logs:
-        st.markdown("### 📋 Detection Logs")
-        log_path = "logs/detection_log.csv"
-        if os.path.exists(log_path):
-            df = pd.read_csv(log_path)
-            st.dataframe(df, use_container_width=True, height=400)
-            st.download_button("⬇️ Download CSV", df.to_csv(index=False),
-                               "detection_log.csv", "text/csv")
-        else:
-            st.info("No detection logs yet. Run a detection to generate logs.")
-
-    # ━━━━━━ TAB 5 — ABOUT ━━━━━━
-    with tab_about:
-        st.markdown("""
-        ### 🛡️ About SmartVision AI
-
-        **Smart Fencing System for Farm Security** — An AI-powered perimeter defense
-        that detects, classifies, and deters intruders in real time.
-
-        #### Key Features
-        | Feature | Desktop (`main.py`) | Cloud (`app.py`) |
-        |---------|:---:|:---:|
-        | YOLOv8 Detection | ✅ | ✅ |
-        | DeepFace Age/Gender | ✅ | ⚠️ Optional |
-        | Haar Cascade Fallback | ✅ | ✅ |
-        | Live Webcam | ✅ | ❌ |
-        | Image Upload | ✅ | ✅ |
-        | Video Upload | ✅ | ✅ |
-        | Buzzer / Ultrasonic | ✅ | ❌ |
-        | WhatsApp Alerts | ✅ | ❌ |
-        | CSV Logging | ✅ | ✅ |
-
-        #### Technology Stack
-        - **YOLOv8** (Ultralytics) – Real-time object detection (80+ classes)
-        - **DeepFace** – Face analysis for age & gender estimation
-        - **OpenCV** – Image processing & Haar cascade fallback
-        - **Streamlit** – Web application framework
-        - **Tkinter** – Desktop GUI (main.py)
-
-        #### Author
-        **Rohan Nandanwar** — B.Tech, DMIHER (DU)
-
-        ---
-        *This is a demonstration/simulation system. Actual electric fencing
-        requires safety certifications per IEC 60479-1 and IEC 60335-2-76.*
-        """)
+    gr.Markdown("---\n*Smart Fencing System v2.0 — Farm Security Through Intelligent Detection*")
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  LOGGING HELPER
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-def _save_log(humans, animals, objects_list):
-    """Append detection results to CSV log."""
-    log_dir = "logs"
-    log_path = os.path.join(log_dir, "detection_log.csv")
-    os.makedirs(log_dir, exist_ok=True)
-
-    write_header = not os.path.exists(log_path)
-    with open(log_path, "a", newline="") as f:
-        writer = csv.writer(f)
-        if write_header:
-            writer.writerow(["Timestamp", "Type", "Label", "Action", "Confidence"])
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        for h in humans:
-            writer.writerow([ts, "Human", h["label"], h["action"], f"{h['conf']:.2f}"])
-        for a in animals:
-            writer.writerow([ts, "Animal", a["label"], a["action"], f"{a['conf']:.2f}"])
-        for o in objects_list:
-            writer.writerow([ts, "Object", o["label"], o["action"], f"{o['conf']:.2f}"])
-
-
+# ─────────────────────────────────────────────
+#  LAUNCH
+# ─────────────────────────────────────────────
 if __name__ == "__main__":
-    main()
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        share=False,
+        show_error=True
+    )
