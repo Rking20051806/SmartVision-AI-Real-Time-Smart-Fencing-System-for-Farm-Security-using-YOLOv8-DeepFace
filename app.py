@@ -15,6 +15,27 @@ import numpy as np
 from datetime import datetime
 from PIL import Image
 
+# ─── Torch Compatibility Fix (PyTorch 2.6+ weights_only) ──
+try:
+    import torch
+    if hasattr(torch, 'serialization') and hasattr(torch.serialization, 'add_safe_globals'):
+        # PyTorch 2.6+ defaults weights_only=True which blocks YOLO loading
+        try:
+            from ultralytics.nn.tasks import DetectionModel, SegmentationModel, ClassificationModel
+            torch.serialization.add_safe_globals([DetectionModel, SegmentationModel, ClassificationModel])
+            print("[INIT] Patched torch safe_globals for ultralytics")
+        except Exception:
+            # Fallback: set default to weights_only=False
+            _original_load = torch.load
+            def _patched_load(*args, **kwargs):
+                if 'weights_only' not in kwargs:
+                    kwargs['weights_only'] = False
+                return _original_load(*args, **kwargs)
+            torch.load = _patched_load  # type: ignore
+            print("[INIT] Patched torch.load with weights_only=False")
+except Exception as e:
+    print(f"[WARN] Torch compatibility patch failed: {e}")
+
 # ─── ML Imports ───────────────────────────────
 LOAD_ERRORS = []
 
