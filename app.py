@@ -5,57 +5,66 @@ Author: Rohan Nandanwar
 Deployable on Hugging Face Spaces / Render / Any cloud platform
 """
 
-import gradio as gr
+import gradio as gr  # pyright: ignore
 import cv2
 import csv
 import os
+import sys
+import traceback
 import numpy as np
 from datetime import datetime
 from PIL import Image
 
 # ─── ML Imports ───────────────────────────────
+LOAD_ERRORS = []
+
 try:
-    from ultralytics import YOLO
+    from ultralytics import YOLO  # pyright: ignore
     YOLO_AVAILABLE = True
-except ImportError:
+except Exception as e:
     YOLO_AVAILABLE = False
-    print("[WARNING] ultralytics not installed")
+    LOAD_ERRORS.append(f"ultralytics: {e}")
 
 try:
-    from deepface import DeepFace
+    from deepface import DeepFace  # pyright: ignore
     DEEPFACE_AVAILABLE = True
-except ImportError:
+except Exception as e:
     DEEPFACE_AVAILABLE = False
-    print("[WARNING] deepface not installed")
+    LOAD_ERRORS.append(f"deepface: {e}")
 
 try:
-    import tensorflow as tf
+    import tensorflow as tf  # pyright: ignore
     TF_AVAILABLE = True
-except ImportError:
+except Exception as e:
     TF_AVAILABLE = False
+    LOAD_ERRORS.append(f"tensorflow: {e}")
+
+print(f"[INIT] YOLO={YOLO_AVAILABLE}, DeepFace={DEEPFACE_AVAILABLE}, TF={TF_AVAILABLE}")
+if LOAD_ERRORS:
+    print(f"[INIT] Load errors: {LOAD_ERRORS}")
 
 # ─────────────────────────────────────────────
 #  SHOCK RULES TABLE
 # ─────────────────────────────────────────────
 SHOCK_RULES = {
-    "adult_male":    {"shock": True,  "current_uA": 4000,  "action": "4000 µA Shock Deterrence"},
-    "adult_female":  {"shock": True,  "current_uA": 2500,  "action": "2500 µA Shock Deterrence"},
-    "child":         {"shock": False, "current_uA": 0,     "action": "No Shock (Safety Override)"},
-    "unknown_human": {"shock": False, "current_uA": 0,     "action": "Alert Only"},
-    "cow":       {"shock": True,  "current_uA": 2500, "action": "2500 µA Shock Deterrence"},
-    "dog":       {"shock": True,  "current_uA": 1800, "action": "1800 µA Shock Deterrence"},
-    "horse":     {"shock": True,  "current_uA": 2500, "action": "2500 µA Shock Deterrence"},
-    "sheep":     {"shock": True,  "current_uA": 2000, "action": "2000 µA Shock Deterrence"},
-    "elephant":  {"shock": True,  "current_uA": 4000, "action": "4000 µA Shock Deterrence"},
-    "bear":      {"shock": True,  "current_uA": 4000, "action": "4000 µA Shock Deterrence"},
-    "zebra":     {"shock": True,  "current_uA": 2500, "action": "2500 µA Shock Deterrence"},
-    "giraffe":   {"shock": True,  "current_uA": 4000, "action": "4000 µA Shock Deterrence"},
-    "cat":       {"shock": False, "current_uA": 1500, "action": "1500 µA Shock Deterrence"},
-    "bird":      {"shock": False, "current_uA": 0,    "action": "Ultrasonic / Buzzer"},
-    "chicken":   {"shock": False, "current_uA": 0,    "action": "Ultrasonic / Buzzer"},
-    "squirrel":  {"shock": False, "current_uA": 0,    "action": "Ultrasonic / Buzzer"},
-    "butterfly": {"shock": False, "current_uA": 0,    "action": "No Action"},
-    "spider":    {"shock": False, "current_uA": 0,    "action": "No Action"},
+    "adult_male":    {"shock": True,  "current_uA": 4000, "action": "4000 uA Shock Deterrence",   "buzzer": True},
+    "adult_female":  {"shock": True,  "current_uA": 2500, "action": "2500 uA Shock Deterrence",   "buzzer": True},
+    "child":         {"shock": False, "current_uA": 0,    "action": "No Shock (Safety Override)",  "buzzer": True},
+    "unknown_human": {"shock": False, "current_uA": 0,    "action": "Alert Only",                  "buzzer": True},
+    "cow":       {"shock": True,  "current_uA": 2500, "action": "2500 uA Shock Deterrence", "buzzer": True},
+    "dog":       {"shock": True,  "current_uA": 1800, "action": "1800 uA Shock Deterrence", "buzzer": True},
+    "horse":     {"shock": True,  "current_uA": 2500, "action": "2500 uA Shock Deterrence", "buzzer": True},
+    "sheep":     {"shock": True,  "current_uA": 2000, "action": "2000 uA Shock Deterrence", "buzzer": True},
+    "elephant":  {"shock": True,  "current_uA": 4000, "action": "4000 uA Shock Deterrence", "buzzer": True},
+    "bear":      {"shock": True,  "current_uA": 4000, "action": "4000 uA Shock Deterrence", "buzzer": True},
+    "zebra":     {"shock": True,  "current_uA": 2500, "action": "2500 uA Shock Deterrence", "buzzer": True},
+    "giraffe":   {"shock": True,  "current_uA": 4000, "action": "4000 uA Shock Deterrence", "buzzer": True},
+    "cat":       {"shock": False, "current_uA": 1500, "action": "1500 uA Shock Deterrence", "buzzer": True},
+    "bird":      {"shock": False, "current_uA": 0,    "action": "Ultrasonic / Buzzer",      "buzzer": True},
+    "chicken":   {"shock": False, "current_uA": 0,    "action": "Ultrasonic / Buzzer",      "buzzer": True},
+    "squirrel":  {"shock": False, "current_uA": 0,    "action": "Ultrasonic / Buzzer",      "buzzer": True},
+    "butterfly": {"shock": False, "current_uA": 0,    "action": "No Action",                "buzzer": False},
+    "spider":    {"shock": False, "current_uA": 0,    "action": "No Action",                "buzzer": False},
 }
 
 ANIMAL_MAP = {
@@ -66,7 +75,7 @@ ANIMAL_MAP = {
 
 
 # ─────────────────────────────────────────────
-#  DETECTION ENGINE (same logic as main.py)
+#  DETECTION ENGINE
 # ─────────────────────────────────────────────
 class DetectionEngine:
     FACE_BACKENDS = ["retinaface", "mtcnn", "opencv", "ssd"]
@@ -76,45 +85,73 @@ class DetectionEngine:
         self.animal_cnn = None
         self.model_name = model_name
         self.frame_count = 0
-        self.deepface_skip = 1  # analyze every frame for image mode
         self._last_human_info = {}
-        self._best_backend = "retinaface"
+        self._best_backend = "skip"
+        self.status_messages = []
         self._load_models()
 
     def _load_models(self):
+        self.status_messages = []
+        # --- YOLO ---
         if YOLO_AVAILABLE:
+            model_path = self.model_name
+            if os.path.exists(model_path):
+                self.status_messages.append(f"YOLO model file found: {model_path}")
+            else:
+                self.status_messages.append(f"YOLO model not found locally: {model_path} (will auto-download)")
             try:
-                self.model = YOLO(self.model_name)  # pyright: ignore
-                print(f"[OK] YOLO model loaded: {self.model_name}")
+                self.model = YOLO(model_path)  # pyright: ignore
+                self.status_messages.append(f"YOLO model loaded OK: {model_path}")
             except Exception as e:
-                print(f"[ERROR] YOLO load failed: {e}")
+                self.status_messages.append(f"YOLO load FAILED: {e}")
+                self.model = None
+        else:
+            self.status_messages.append("ultralytics not installed - YOLO unavailable")
+
+        # --- Animal CNN ---
         if TF_AVAILABLE and os.path.exists("animal10.h5"):
             try:
                 self.animal_cnn = tf.keras.models.load_model("animal10.h5")  # pyright: ignore
-                print("[OK] Animal-10 CNN loaded.")
+                self.status_messages.append("Animal-10 CNN loaded")
             except Exception as e:
-                print(f"[WARN] Animal CNN load failed: {e}")
-        self._best_backend = self._probe_backend()
+                self.status_messages.append(f"Animal CNN load failed: {e}")
+        else:
+            self.status_messages.append("Animal CNN (animal10.h5) not available - using YOLO only")
+
+        # --- DeepFace backend ---
+        if DEEPFACE_AVAILABLE:
+            self._best_backend = self._probe_backend()
+            self.status_messages.append(f"DeepFace available, backend: {self._best_backend}")
+        else:
+            self.status_messages.append("DeepFace not installed - gender/age unavailable")
+            self._best_backend = "skip"
 
     def change_model(self, model_name):
         self.model_name = model_name
         if YOLO_AVAILABLE:
             try:
                 self.model = YOLO(model_name)  # pyright: ignore
-                print(f"[OK] Switched to: {model_name}")
+                return f"Switched to: {model_name}"
             except Exception as e:
-                print(f"[ERROR] {e}")
+                return f"Failed to switch: {e}"
+        return "YOLO not available"
+
+    def get_status(self):
+        return "\n".join(self.status_messages) if self.status_messages else "No status info"
 
     def analyze_frame(self, frame):
-        """Returns (annotated_frame, human_detections, animal_detections, object_detections)"""
+        """Returns (annotated_frame, human_detections, animal_detections, object_detections, alerts)"""
         if self.model is None:
-            return frame, [], [], []
+            return frame, [], [], [], ["YOLO model not loaded. Detection unavailable."]
 
         self.frame_count += 1
         annotated = frame.copy()
-        humans, animals, objects = [], [], []
+        humans, animals, objects, alerts = [], [], [], []
 
-        results = self.model(frame, verbose=False, conf=0.35)[0]
+        try:
+            results = self.model(frame, verbose=False, conf=0.25)[0]
+        except Exception as e:
+            return frame, [], [], [], [f"YOLO inference error: {e}"]
 
         for box in results.boxes:
             cls_id = int(box.cls[0])
@@ -133,58 +170,81 @@ class DetectionEngine:
                     "shock": rule["shock"],
                     "current_uA": rule.get("current_uA", 0),
                     "conf": conf,
-                    "bbox": (x1, y1, x2, y2)
+                    "bbox": (x1, y1, x2, y2),
+                    "type": "Human"
                 }
                 humans.append(info)
+
+                # Draw on frame
                 color = (0, 255, 0)
                 cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
                 overlay = f"{category}, Age:{age} ({conf:.2f})"
                 cv2.putText(annotated, overlay, (x1, y1 - 8),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+                # Alerts
+                if rule.get("buzzer"):
+                    alerts.append(f"BUZZER TRIGGERED: {category} detected - {rule['action']}")
+                if rule["shock"]:
+                    alerts.append(f"SHOCK ARMED: {rule['current_uA']} uA for {category}")
+                alerts.append(f"WhatsApp Alert Sent: {category} (Age:{age}) at fence perimeter")
 
             elif cls_name in ANIMAL_MAP:
                 species = ANIMAL_MAP[cls_name]
-                rule = SHOCK_RULES.get(species, {"action": "Alert", "shock": False})
+                rule = SHOCK_RULES.get(species, {"action": "Alert", "shock": False, "buzzer": True})
                 info = {
                     "label": f"{species.capitalize()} | Conf:{conf:.2f}",
                     "action": rule["action"],
                     "shock": rule["shock"],
                     "current_uA": rule.get("current_uA", 0),
                     "conf": conf,
-                    "bbox": (x1, y1, x2, y2)
+                    "bbox": (x1, y1, x2, y2),
+                    "type": "Animal"
                 }
                 animals.append(info)
-                color = (255, 165, 0)
+
+                color = (0, 165, 255)
                 cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(annotated, f"{species} {conf:.2f}", (x1, y1 - 8),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+                # Alerts
+                if rule.get("buzzer"):
+                    alerts.append(f"BUZZER TRIGGERED: {species.capitalize()} detected - {rule['action']}")
+                if rule.get("shock"):
+                    alerts.append(f"SHOCK ARMED: {rule.get('current_uA', 0)} uA for {species.capitalize()}")
+                alerts.append(f"WhatsApp Alert Sent: {species.capitalize()} detected near fence")
+
             else:
                 info = {
                     "label": f"{cls_name.capitalize()} | Conf:{conf:.2f}",
-                    "action": "Alert",
+                    "action": "Logged",
                     "shock": False,
                     "current_uA": 0,
                     "conf": conf,
-                    "bbox": (x1, y1, x2, y2)
+                    "bbox": (x1, y1, x2, y2),
+                    "type": "Object"
                 }
                 objects.append(info)
-                color = (0, 0, 255)
+                color = (255, 0, 0)
                 cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(annotated, f"{cls_name} {conf:.2f}", (x1, y1 - 8),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-        return annotated, humans, animals, objects
+        if not humans and not animals and not objects:
+            alerts.append("No objects detected in this frame. Try a clearer image.")
+
+        return annotated, humans, animals, objects, alerts
 
     # ── Human Analysis ────────────────────────
     def _analyze_human(self, frame, x1, y1, x2, y2):
         if not DEEPFACE_AVAILABLE:
             visual_gender = self._visual_gender_features(frame, x1, y1, x2, y2)
             return "?", visual_gender
-        if self.frame_count % self.deepface_skip != 0:
-            cached = self._last_human_info
-            return cached.get("age", "?"), cached.get("gender", "Unknown")
+
         try:
             h = y2 - y1
+            w = x2 - x1
             roi = frame[max(0, y1):y2, max(0, x1):x2]
             if roi.size == 0:
                 return "?", "Unknown"
@@ -222,14 +282,16 @@ class DetectionEngine:
                         )
                         if isinstance(result, list):
                             result = result[0]
-                        age = result.get("age", None)  # pyright: ignore
-                        gender = result.get("dominant_gender", None)  # pyright: ignore
-                        face_conf = result.get("face_confidence", 0)  # pyright: ignore
-                        gender_scores = result.get("gender", {})  # pyright: ignore
-                        if age is not None and gender is not None:
-                            deepface_age = age
-                            deepface_gender = gender
+                        result_dict: dict = dict(result) if not isinstance(result, dict) else result  # pyright: ignore
+                        age_val = result_dict.get("age", None)
+                        gender_val = result_dict.get("dominant_gender", None)
+                        face_conf = result_dict.get("face_confidence", 0)
+                        g_scores = result_dict.get("gender", {})
+                        if age_val is not None and gender_val is not None:
+                            deepface_age = age_val
+                            deepface_gender = gender_val
                             deepface_conf = float(face_conf) if face_conf else 0.0
+                            gender_scores = g_scores
                             if deepface_conf > 0.8:
                                 break
                     except Exception:
@@ -245,7 +307,8 @@ class DetectionEngine:
             self._last_human_info = {"age": final_age, "gender": final_gender}
             return final_age, final_gender
 
-        except Exception:
+        except Exception as e:
+            print(f"[WARN] Human analysis error: {e}")
             return "?", "Unknown"
 
     # ── Visual Gender Features ────────────────
@@ -259,7 +322,6 @@ class DetectionEngine:
 
             score = 0.0
 
-            # 1) Hair length detection
             head_region = roi[0:int(h * 0.4), :]
             if head_region.size > 0:
                 gray_head = cv2.cvtColor(head_region, cv2.COLOR_BGR2GRAY)
@@ -279,7 +341,6 @@ class DetectionEngine:
                     if hair_spread > 0.6:
                         score += 0.8
 
-            # 2) Body shape
             if h > 40 and w > 20:
                 shoulder_strip = roi[int(h * 0.2):int(h * 0.3), :]
                 hip_strip = roi[int(h * 0.55):int(h * 0.7), :]
@@ -297,7 +358,6 @@ class DetectionEngine:
                         elif ratio < 0.85:
                             score -= 0.8
 
-            # 3) Clothing color
             if roi.size > 0:
                 hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
                 clothing = hsv[int(h * 0.25):int(h * 0.7), :]
@@ -308,7 +368,6 @@ class DetectionEngine:
                     if warm_ratio > 0.1:
                         score += 0.5
 
-            # 4) Skin smoothness
             upper_body = roi[0:int(h * 0.4), :]
             if upper_body.size > 0:
                 gray_ub = cv2.cvtColor(upper_body, cv2.COLOR_BGR2GRAY)
@@ -366,8 +425,10 @@ class DetectionEngine:
                                  detector_backend=backend)
                 print(f"[OK] Face-detection backend: {backend}")
                 return backend
-            except Exception:
+            except Exception as e:
+                print(f"[WARN] Backend {backend} failed: {e}")
                 continue
+        print("[WARN] All face backends failed, using 'skip'")
         return "skip"
 
     def _human_category_label(self, age, gender):
@@ -405,15 +466,20 @@ class DetectionEngine:
 class Logger:
     def __init__(self, filepath="detection_log.csv"):
         self.filepath = filepath
-        os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else ".", exist_ok=True)
+        d = os.path.dirname(filepath)
+        if d:
+            os.makedirs(d, exist_ok=True)
         if not os.path.exists(filepath):
             with open(filepath, "w", newline="") as f:
                 csv.writer(f).writerow(["Timestamp", "Type", "Label", "Action", "Confidence"])
 
     def log(self, det_type, label, action, conf):
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(self.filepath, "a", newline="") as f:
-            csv.writer(f).writerow([ts, det_type, label, action, f"{conf:.2f}"])
+        try:
+            with open(self.filepath, "a", newline="") as f:
+                csv.writer(f).writerow([ts, det_type, label, action, f"{conf:.2f}"])
+        except Exception:
+            pass
 
 
 # ─────────────────────────────────────────────
@@ -423,45 +489,60 @@ AVAILABLE_MODELS = ["yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolov8l.pt", "yol
 engine = DetectionEngine("yolov8n.pt")
 logger = Logger("detection_log.csv")
 
+print(f"[INIT] Engine status:\n{engine.get_status()}")
+
 
 # ─────────────────────────────────────────────
 #  PROCESSING FUNCTIONS
 # ─────────────────────────────────────────────
-def format_detections(humans, animals, objects):
+def format_detections(humans, animals, objects, alerts):
     """Build a formatted Markdown report of all detections."""
     lines = []
 
+    # Alerts Panel
+    if alerts:
+        lines.append("### Alerts & Notifications\n")
+        for a in alerts:
+            lines.append(f"- {a}")
+        lines.append("")
+
+    # Detections
     if humans:
-        lines.append("### 🧑 Human Detections\n")
+        lines.append("### Human Detections\n")
         for h in humans:
-            shock_icon = "⚡" if h["shock"] else "✅"
+            shock_text = "SHOCK" if h["shock"] else "SAFE"
             lines.append(f"- **{h['label']}** ({h['conf']:.0%})")
-            lines.append(f"  - {shock_icon} {h['action']}")
+            lines.append(f"  - [{shock_text}] {h['action']}")
             if h.get("current_uA"):
-                lines.append(f"  - Current: {h['current_uA']} µA")
+                lines.append(f"  - Current: {h['current_uA']} uA")
         lines.append("")
 
     if animals:
-        lines.append("### 🐾 Animal Detections\n")
+        lines.append("### Animal Detections\n")
         for a in animals:
-            shock_icon = "⚡" if a["shock"] else "🔔"
+            shock_text = "SHOCK" if a["shock"] else "ALERT"
             lines.append(f"- **{a['label']}**")
-            lines.append(f"  - {shock_icon} {a['action']}")
+            lines.append(f"  - [{shock_text}] {a['action']}")
+            if a.get("current_uA"):
+                lines.append(f"  - Current: {a['current_uA']} uA")
         lines.append("")
 
     if objects:
-        lines.append("### 📦 Other Objects\n")
-        for o in objects[:8]:
+        lines.append("### Other Objects\n")
+        for o in objects[:10]:
             lines.append(f"- {o['label']}")
         lines.append("")
 
     if not humans and not animals and not objects:
-        lines.append("*No detections in this frame.*")
+        lines.append("*No detections in this frame.*\n")
 
-    # Summary stats
+    # Summary
     total = len(humans) + len(animals) + len(objects)
     shock_count = sum(1 for d in humans + animals if d.get("shock"))
-    lines.append(f"\n---\n**Total: {total}** detections | **{shock_count}** shock triggers")
+    buzzer_count = len([a for a in alerts if "BUZZER" in a])
+    whatsapp_count = len([a for a in alerts if "WhatsApp" in a])
+    lines.append(f"\n---\n**Total: {total}** detections | **{shock_count}** shock triggers | "
+                 f"**{buzzer_count}** buzzer alerts | **{whatsapp_count}** notifications")
 
     return "\n".join(lines)
 
@@ -469,32 +550,43 @@ def format_detections(humans, animals, objects):
 def process_image(image, model_name):
     """Process a single uploaded image."""
     if image is None:
-        return None, "*Upload an image to begin detection.*"
+        return None, "**Upload an image to begin detection.**"
 
-    # Switch model if changed
     if model_name and model_name != engine.model_name:
-        engine.change_model(model_name)
+        msg = engine.change_model(model_name)
+        print(f"[MODEL] {msg}")
 
-    # Convert PIL → OpenCV BGR
-    frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-    frame = cv2.resize(frame, (640, 480))
+    try:
+        img_array = np.array(image)
+        if len(img_array.shape) == 2:
+            frame = cv2.cvtColor(img_array, cv2.COLOR_GRAY2BGR)
+        elif img_array.shape[2] == 4:
+            frame = cv2.cvtColor(img_array, cv2.COLOR_RGBA2BGR)
+        else:
+            frame = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
 
-    # Run detection
-    annotated, humans, animals, objects = engine.analyze_frame(frame)
+        h, w = frame.shape[:2]
+        scale = min(640 / w, 640 / h, 1.0)
+        if scale < 1.0:
+            frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
 
-    # Log detections
-    for h in humans:
-        logger.log("Human", h["label"], h["action"], h["conf"])
-    for a in animals:
-        logger.log("Animal", a["label"], a["action"], a["conf"])
-    for o in objects:
-        logger.log("Object", o["label"], o["action"], o["conf"])
+        annotated, humans, animals, objects, alerts = engine.analyze_frame(frame)
 
-    # Convert back to RGB for display
-    result_img = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
-    report = format_detections(humans, animals, objects)
+        for det in humans:
+            logger.log("Human", det["label"], det["action"], det["conf"])
+        for det in animals:
+            logger.log("Animal", det["label"], det["action"], det["conf"])
+        for det in objects:
+            logger.log("Object", det["label"], det["action"], det["conf"])
 
-    return Image.fromarray(result_img), report
+        result_img = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+        report = format_detections(humans, animals, objects, alerts)
+
+        return Image.fromarray(result_img), report
+
+    except Exception as e:
+        error_msg = f"**Error processing image:** {str(e)}\n\n```\n{traceback.format_exc()}\n```"
+        return None, error_msg
 
 
 def process_webcam(frame, model_name):
@@ -505,71 +597,88 @@ def process_webcam(frame, model_name):
     if model_name and model_name != engine.model_name:
         engine.change_model(model_name)
 
-    # Gradio webcam gives numpy RGB
-    bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-    bgr = cv2.resize(bgr, (640, 480))
+    try:
+        bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        h, w = bgr.shape[:2]
+        scale = min(640 / w, 640 / h, 1.0)
+        if scale < 1.0:
+            bgr = cv2.resize(bgr, (int(w * scale), int(h * scale)))
 
-    annotated, humans, animals, objects = engine.analyze_frame(bgr)
+        annotated, humans, animals, objects, alerts = engine.analyze_frame(bgr)
 
-    for h in humans:
-        logger.log("Human", h["label"], h["action"], h["conf"])
-    for a in animals:
-        logger.log("Animal", a["label"], a["action"], a["conf"])
+        for det in humans:
+            logger.log("Human", det["label"], det["action"], det["conf"])
+        for det in animals:
+            logger.log("Animal", det["label"], det["action"], det["conf"])
 
-    result_img = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
-    report = format_detections(humans, animals, objects)
+        result_img = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+        report = format_detections(humans, animals, objects, alerts)
 
-    return result_img, report
+        return result_img, report
+
+    except Exception as e:
+        return frame, f"Error: {e}"
 
 
 def process_video(video_path, model_name):
-    """Process an uploaded video file, return annotated first frame + full report."""
+    """Process an uploaded video file."""
     if video_path is None:
-        return None, "*Upload a video to begin.*"
+        return None, "**Upload a video to begin.**"
 
     if model_name and model_name != engine.model_name:
         engine.change_model(model_name)
 
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        return None, "**Error:** Could not open video file."
+    try:
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return None, "**Error:** Could not open video file."
 
-    all_humans, all_animals, all_objects = [], [], []
-    result_frame = None
-    frame_idx = 0
-    max_frames = 60  # process up to 60 frames
+        all_humans, all_animals, all_objects, all_alerts = [], [], [], []
+        result_frame = None
+        frame_idx = 0
+        max_frames = 90
 
-    while cap.isOpened() and frame_idx < max_frames:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frame = cv2.resize(frame, (640, 480))
+        while cap.isOpened() and frame_idx < max_frames:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        # Process every 3rd frame for speed
-        if frame_idx % 3 == 0:
-            annotated, humans, animals, objects = engine.analyze_frame(frame)
-            all_humans.extend(humans)
-            all_animals.extend(animals)
-            all_objects.extend(objects)
-            if result_frame is None:
-                result_frame = annotated.copy()
-            for h in humans:
-                logger.log("Human", h["label"], h["action"], h["conf"])
-            for a in animals:
-                logger.log("Animal", a["label"], a["action"], a["conf"])
+            h, w = frame.shape[:2]
+            scale = min(640 / w, 640 / h, 1.0)
+            if scale < 1.0:
+                frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
 
-        frame_idx += 1
+            if frame_idx % 3 == 0:
+                annotated, humans, animals, objects, alerts = engine.analyze_frame(frame)
+                all_humans.extend(humans)
+                all_animals.extend(animals)
+                all_objects.extend(objects)
+                all_alerts.extend(alerts)
+                if result_frame is None and (humans or animals):
+                    result_frame = annotated.copy()
+                elif result_frame is None:
+                    result_frame = annotated.copy()
+                for det in humans:
+                    logger.log("Human", det["label"], det["action"], det["conf"])
+                for det in animals:
+                    logger.log("Animal", det["label"], det["action"], det["conf"])
 
-    cap.release()
+            frame_idx += 1
 
-    if result_frame is not None:
-        result_img = Image.fromarray(cv2.cvtColor(result_frame, cv2.COLOR_BGR2RGB))
-    else:
-        result_img = None
+        cap.release()
 
-    report = format_detections(all_humans, all_animals, all_objects)
-    report = f"**Analyzed {frame_idx} frames**\n\n" + report
-    return result_img, report
+        if result_frame is not None:
+            result_img = Image.fromarray(cv2.cvtColor(result_frame, cv2.COLOR_BGR2RGB))
+        else:
+            result_img = None
+
+        unique_alerts = list(dict.fromkeys(all_alerts))[:20]
+        report = format_detections(all_humans, all_animals, all_objects, unique_alerts)
+        report = f"**Analyzed {frame_idx} frames ({frame_idx // 3} processed)**\n\n" + report
+        return result_img, report
+
+    except Exception as e:
+        return None, f"**Error:** {e}\n\n```\n{traceback.format_exc()}\n```"
 
 
 def get_log_file():
@@ -581,27 +690,62 @@ def get_log_file():
 
 def get_shock_rules_table():
     """Show shock rules as Markdown table."""
-    lines = ["| Entity | Shock? | Current (µA) | Action |",
-             "|--------|--------|-------------|--------|"]
+    lines = ["| Entity | Shock? | Current (uA) | Buzzer? | Action |",
+             "|--------|--------|-------------|---------|--------|"]
     for key, rule in SHOCK_RULES.items():
         name = key.replace("_", " ").title()
-        shock = "⚡ Yes" if rule.get("shock") else "❌ No"
+        shock = "Yes" if rule.get("shock") else "No"
+        buzzer = "Yes" if rule.get("buzzer") else "No"
         current = rule.get("current_uA", 0)
-        lines.append(f"| {name} | {shock} | {current} | {rule['action']} |")
+        lines.append(f"| {name} | {shock} | {current} | {buzzer} | {rule['action']} |")
+    return "\n".join(lines)
+
+
+def get_system_status():
+    """Return system diagnostic info."""
+    lines = ["### System Status\n"]
+    lines.append(f"- **Python:** {sys.version.split()[0]}")
+    lines.append(f"- **YOLO (ultralytics):** {'Available' if YOLO_AVAILABLE else 'Not installed'}")
+    lines.append(f"- **DeepFace:** {'Available' if DEEPFACE_AVAILABLE else 'Not installed'}")
+    lines.append(f"- **TensorFlow:** {'Available' if TF_AVAILABLE else 'Not installed'}")
+    lines.append(f"- **Current Model:** {engine.model_name}")
+    lines.append(f"- **Face Backend:** {engine._best_backend}")
+    lines.append("")
+    lines.append("### Model Load Log\n")
+    for msg in engine.status_messages:
+        lines.append(f"- {msg}")
+    if LOAD_ERRORS:
+        lines.append("\n### Import Errors\n")
+        for e in LOAD_ERRORS:
+            lines.append(f"- {e}")
+
+    lines.append("\n### Model Files\n")
+    for m in AVAILABLE_MODELS:
+        exists = "Found" if os.path.exists(m) else "Missing"
+        lines.append(f"- {m}: {exists}")
+    lines.append(f"- animal10.h5: {'Found' if os.path.exists('animal10.h5') else 'Not available'}")
+
+    lines.append(f"\n### Working Directory: `{os.getcwd()}`")
+    try:
+        files = os.listdir(".")
+        lines.append(f"- Files: {', '.join(sorted(files)[:20])}")
+    except Exception:
+        pass
+
     return "\n".join(lines)
 
 
 # ─────────────────────────────────────────────
 #  GRADIO UI
 # ─────────────────────────────────────────────
-TITLE = "⚡ Smart Fencing System"
+TITLE = "Smart Fencing System"
 DESCRIPTION = """
 **Real-Time Detection Based on Smart Fencing System for Farm Security**
 
-Upload an image, video, or use your webcam to detect humans (with age & gender) and animals.
-The system determines the appropriate shock deterrence based on detection type.
+Upload an image, video, or use your webcam to detect humans (with age and gender) and animals.
+The system determines the appropriate shock deterrence and triggers buzzer / WhatsApp alerts.
 
-*By Rohan Nandanwar*
+*By Rohan Nandanwar - B.Tech Minor Project, DMIHER (DU)*
 """
 
 with gr.Blocks(
@@ -620,20 +764,24 @@ with gr.Blocks(
         model_selector = gr.Dropdown(
             choices=AVAILABLE_MODELS,
             value="yolov8n.pt",
-            label="🔧 YOLO Model",
-            info="Larger models (m/l/x) are more accurate but slower"
+            label="YOLO Model",
+            info="Larger models are more accurate but slower on CPU"
         )
 
     with gr.Tabs():
-        # ── Tab 1: Image Upload ──
-        with gr.TabItem("📷 Image Upload"):
+        # Tab 1: Image Upload
+        with gr.TabItem("Image Upload"):
             with gr.Row():
                 with gr.Column(scale=1):
                     img_input = gr.Image(type="pil", label="Upload Image")
-                    img_btn = gr.Button("🔍 Detect", variant="primary", size="lg")
+                    img_btn = gr.Button("Detect", variant="primary", size="lg")
                 with gr.Column(scale=1):
                     img_output = gr.Image(label="Detection Result")
-            img_report = gr.Markdown(label="Detection Report", elem_classes="detection-report")
+            img_report = gr.Markdown(
+                value="*Upload an image and click Detect to start.*",
+                label="Detection Report",
+                elem_classes="detection-report"
+            )
 
             img_btn.click(
                 fn=process_image,
@@ -641,8 +789,8 @@ with gr.Blocks(
                 outputs=[img_output, img_report]
             )
 
-        # ── Tab 2: Webcam (Live) ──
-        with gr.TabItem("📹 Webcam (Live)"):
+        # Tab 2: Webcam (Live)
+        with gr.TabItem("Webcam (Live)"):
             gr.Markdown("*Click to start your webcam. Detections update per frame.*")
             with gr.Row():
                 with gr.Column(scale=1):
@@ -657,12 +805,12 @@ with gr.Blocks(
                 outputs=[webcam_output, webcam_report]
             )
 
-        # ── Tab 3: Video Upload ──
-        with gr.TabItem("🎬 Video Upload"):
+        # Tab 3: Video Upload
+        with gr.TabItem("Video Upload"):
             with gr.Row():
                 with gr.Column(scale=1):
                     vid_input = gr.Video(label="Upload Video")
-                    vid_btn = gr.Button("🔍 Analyze Video", variant="primary", size="lg")
+                    vid_btn = gr.Button("Analyze Video", variant="primary", size="lg")
                 with gr.Column(scale=1):
                     vid_output = gr.Image(label="Detection Sample Frame")
             vid_report = gr.Markdown(elem_classes="detection-report")
@@ -673,19 +821,31 @@ with gr.Blocks(
                 outputs=[vid_output, vid_report]
             )
 
-        # ── Tab 4: Shock Rules ──
-        with gr.TabItem("📋 Shock Rules"):
-            gr.Markdown("### ⚡ Smart Fencing Shock Rules Table")
+        # Tab 4: Shock Rules
+        with gr.TabItem("Shock Rules"):
+            gr.Markdown("### Smart Fencing Shock Rules Table")
             gr.Markdown(get_shock_rules_table())
+            gr.Markdown("""
+> **Note:** In the web demo, buzzer alerts and WhatsApp notifications are **simulated** 
+> (shown as text alerts in the report). In the desktop app (main.py), these trigger actual 
+> hardware buzzer sounds and WhatsApp messages via the connected device.
+            """)
 
-        # ── Tab 5: Detection Log ──
-        with gr.TabItem("📊 Detection Log"):
+        # Tab 5: Detection Log
+        with gr.TabItem("Detection Log"):
             gr.Markdown("### Detection History")
-            log_btn = gr.Button("📥 Download Detection Log", variant="secondary")
+            log_btn = gr.Button("Download Detection Log", variant="secondary")
             log_file = gr.File(label="Log File")
             log_btn.click(fn=get_log_file, outputs=[log_file])
 
-    gr.Markdown("---\n*Smart Fencing System v2.0 — Farm Security Through Intelligent Detection*")
+        # Tab 6: System Status
+        with gr.TabItem("System Status"):
+            gr.Markdown("### Diagnostics and Model Status")
+            status_btn = gr.Button("Refresh Status", variant="secondary")
+            status_display = gr.Markdown(value=get_system_status())
+            status_btn.click(fn=get_system_status, outputs=[status_display])
+
+    gr.Markdown("---\n*Smart Fencing System v2.0 - Farm Security Through Intelligent Detection*")
 
 
 # ─────────────────────────────────────────────
